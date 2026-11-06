@@ -1,15 +1,15 @@
 
 package be.plons.aitelling
 
-import android.graphics.Bitmap
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
+import androidx.camera.core.CameraSelector
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +40,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import be.plons.aitelling.camera.CameraScreen
+import java.io.File
+import android.widget.ImageView
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,190 +60,260 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun PlonsApp() {
 
-    var selectedImage by remember {
-        mutableStateOf<Uri?>(null)
-    }
-
-    var cameraImage by remember {
-        mutableStateOf<Bitmap?>(null)
-    }
-
     val context = LocalContext.current
 
-    // Foto selecteren uit de galerij
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            selectedImage = uri
-            cameraImage = null
-        }
+    var selectedPhoto by remember {
+        mutableStateOf<File?>(null)
     }
 
-    // Foto maken met de camera-app
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        if (bitmap != null) {
-            cameraImage = bitmap
-            selectedImage = null
-        }
+    var showCamera by remember {
+        mutableStateOf(false)
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color(0xFFF5F8F7)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Top
-        ) {
+    var message by remember {
+        mutableStateOf("Selecteer eerst een afbeelding.")
+    }
 
-            Text(
-                text = "PLONS AI",
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF087F68)
-            )
+    // Verwijdert de vorige tijdelijke foto.
+    fun replacePhoto(newPhoto: File) {
+        selectedPhoto?.delete()
+        selectedPhoto = newPhoto
+        message = "Foto geladen en tijdelijk opgeslagen."
+    }
 
-            Text(
-                text = "Macroplastic Detection",
-                fontSize = 14.sp,
-                color = Color.Gray
-            )
+    // Vraagt cameratoestemming wanneer nodig.
+    val permissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                showCamera = true
+            } else {
+                message = "Cameratoestemming geweigerd."
+            }
+        }
 
-            Spacer(modifier = Modifier.height(32.dp))
+    // Selecteert een foto en maakt een tijdelijke kopie.
+    val galleryLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.GetContent()
+        ) { uri ->
 
-            Text(
-                text = "Plastic automatisch tellen",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF17352E)
-            )
+            if (uri != null) {
+                var tempFile: File? = null
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "Maak een foto of selecteer een " +
-                        "afbeelding om plastic afval te analyseren.",
-                fontSize = 16.sp,
-                color = Color.DarkGray
-            )
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // Fotovoorbeeld
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(240.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White
-            ) {
-
-                if (selectedImage != null || cameraImage != null) {
-
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = {
-                            ImageView(context).apply {
-                                scaleType =
-                                    ImageView.ScaleType.FIT_CENTER
-                            }
-                        },
-                        update = { imageView ->
-                            if (selectedImage != null) {
-                                imageView.setImageURI(selectedImage)
-                            } else {
-                                imageView.setImageBitmap(cameraImage)
-                            }
-                        }
+                try {
+                    val photoDirectory = File(
+                        context.cacheDir,
+                        "plons_photos"
                     )
+                    photoDirectory.mkdirs()
 
-                } else {
+                    val newFile = File.createTempFile(
+                        "plons_gallery_",
+                        ".jpg",
+                        photoDirectory
+                    )
+                    tempFile = newFile
 
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Geen foto geselecteerd",
-                            fontSize = 16.sp,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
+                    val inputStream =
+                        context.contentResolver.openInputStream(uri)
+                            ?: error("Kan foto niet openen")
+
+                    inputStream.use { input ->
+                        tempFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
+
+                    replacePhoto(tempFile)
+
+                } catch (error: Exception) {
+                    tempFile?.delete()
+                    message = "Foto laden mislukt: ${error.message}"
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.height(24.dp))
+    if (showCamera) {
 
-            Button(
-                onClick = {
-                    cameraLauncher.launch(null)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF087F68)
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    text = "Camera openen",
-                    fontSize = 17.sp
-                )
+        CameraScreen(
+            onPhotoTaken = { photo ->
+                replacePhoto(photo)
+                showCamera = false
+            },
+            onBack = {
+                showCamera = false
             }
+        )
 
-            Spacer(modifier = Modifier.height(12.dp))
+    } else {
 
-            OutlinedButton(
-                onClick = {
-                    galleryLauncher.launch("image/*")
-                },
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFFF5F8F7)
+        ) {
+
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(12.dp)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Top
             ) {
+
                 Text(
-                    text = "Foto selecteren",
-                    fontSize = 17.sp,
+                    text = "PLONS AI",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
                     color = Color(0xFF087F68)
                 )
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (selectedImage != null || cameraImage != null) {
                 Text(
-                    text = "Foto geladen. Klaar voor AI-analyse " +
-                            "zodra het AI-model is aangesloten.",
-                    fontSize = 14.sp,
-                    color = Color(0xFF087F68)
-                )
-            } else {
-                Text(
-                    text = "Selecteer eerst een afbeelding.",
+                    text = "Macroplastic Detection",
                     fontSize = 14.sp,
                     color = Color.Gray
                 )
+
+                Spacer(Modifier.height(32.dp))
+
+                Text(
+                    text = "Plastic automatisch tellen",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF17352E)
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                Text(
+                    text = "Maak een foto of selecteer een " +
+                            "afbeelding om plastic afval te analyseren.",
+                    fontSize = 16.sp,
+                    color = Color.DarkGray
+                )
+
+                Spacer(Modifier.height(28.dp))
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White
+                ) {
+
+                    val photo = selectedPhoto
+
+                    if (photo != null) {
+
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                ImageView(ctx).apply {
+                                    scaleType =
+                                        ImageView.ScaleType.FIT_CENTER
+                                }
+                            },
+                            update = { imageView ->
+                                imageView.setImageURI(
+                                    Uri.fromFile(photo)
+                                )
+                            }
+                        )
+
+                    } else {
+
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement =
+                                Arrangement.Center,
+                            horizontalAlignment =
+                                Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Geen foto geselecteerd",
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                Button(
+                    onClick = {
+                        val hasPermission =
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+
+                        if (hasPermission) {
+                            showCamera = true
+                        } else {
+                            permissionLauncher.launch(
+                                Manifest.permission.CAMERA
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF087F68)
+                    )
+                ) {
+                    Text("Camera openen", fontSize = 17.sp)
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        galleryLauncher.launch("image/*")
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                ) {
+                    Text("Foto selecteren", fontSize = 17.sp)
+                }
+
+                if (selectedPhoto != null) {
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            selectedPhoto?.delete()
+                            selectedPhoto = null
+                            message = "Tijdelijke foto verwijderd."
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Foto verwijderen")
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                Text(
+                    text = message,
+                    fontSize = 14.sp,
+                    color = Color(0xFF087F68)
+                )
+
+                Spacer(Modifier.height(32.dp))
+
+                Text(
+                    text = "Plons AI - Development v0.2",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
             }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Text(
-                text = "Plons AI - Development v0.1",
-                fontSize = 12.sp,
-                color = Color.Gray,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
