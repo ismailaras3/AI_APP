@@ -44,10 +44,16 @@ import androidx.core.content.ContextCompat
 import be.plons.aitelling.camera.CameraScreen
 import java.io.File
 import android.widget.ImageView
+import be.plons.aitelling.storage.PhotoCacheManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Oude tijdelijke foto's verwijderen bij een nieuwe app-start.
+        // TEST: automatische cache-opruiming tijdelijk uitgeschakeld.
+        if (savedInstanceState == null) {
+            PhotoCacheManager.clearCache(this)
+        }
 
         setContent {
             MaterialTheme {
