@@ -45,6 +45,7 @@ import be.plons.aitelling.camera.CameraScreen
 import java.io.File
 import android.widget.ImageView
 import be.plons.aitelling.storage.PhotoCacheManager
+import be.plons.aitelling.network.PlonsApiClient
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +79,9 @@ fun PlonsApp() {
 
     var message by remember {
         mutableStateOf("Selecteer eerst een afbeelding.")
+    }
+    var isUploading by remember {
+        mutableStateOf(false)
     }
 
     // Verwijdert de vorige tijdelijke foto.
@@ -285,6 +289,48 @@ fun PlonsApp() {
                 ) {
                     Text("Foto selecteren", fontSize = 17.sp)
                 }
+
+                Spacer(Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val photo = selectedPhoto
+
+                        if (photo != null && !isUploading) {
+                            isUploading = true
+                            message = "Foto wordt verzonden..."
+
+                            PlonsApiClient.analysePhoto(photo) { result ->
+                                isUploading = false
+
+                                message = result.fold(
+                                    onSuccess = { serverMessage ->
+                                        serverMessage
+                                    },
+                                    onFailure = { error ->
+                                        "Analyse mislukt: ${error.message}"
+                                    }
+                                )
+                            }
+                        }
+                    },
+                    enabled = !isUploading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF087F68)
+                    )
+                ) {
+                    Text(
+                        text = if (isUploading) {
+                            "Foto verzenden..."
+                        } else {
+                            "Foto analyseren"
+                        }
+                    )
+                }
+
 
                 if (selectedPhoto != null) {
 
