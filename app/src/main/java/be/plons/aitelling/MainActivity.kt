@@ -46,6 +46,8 @@ import java.io.File
 import android.widget.ImageView
 import be.plons.aitelling.storage.PhotoCacheManager
 import be.plons.aitelling.network.PlonsApiClient
+import be.plons.aitelling.network.ApiAnalysis
+import be.plons.aitelling.ui.theme.DetectionPhoto
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,11 +86,17 @@ fun PlonsApp() {
         mutableStateOf(false)
     }
 
+    var analysisResult by remember {
+        mutableStateOf<ApiAnalysis?>(null)
+    }
+
     // Verwijdert de vorige tijdelijke foto.
     fun replacePhoto(newPhoto: File) {
         selectedPhoto?.delete()
         selectedPhoto = newPhoto
+        analysisResult = null
         message = "Foto geladen en tijdelijk opgeslagen."
+
     }
 
     // Vraagt cameratoestemming wanneer nodig.
@@ -217,19 +225,10 @@ fun PlonsApp() {
 
                     if (photo != null) {
 
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { ctx ->
-                                ImageView(ctx).apply {
-                                    scaleType =
-                                        ImageView.ScaleType.FIT_CENTER
-                                }
-                            },
-                            update = { imageView ->
-                                imageView.setImageURI(
-                                    Uri.fromFile(photo)
-                                )
-                            }
+                        DetectionPhoto(
+                            photo = photo,
+                            analysis = analysisResult,
+                            modifier = Modifier.fillMaxSize()
                         )
 
                     } else {
@@ -303,14 +302,15 @@ fun PlonsApp() {
                             PlonsApiClient.analysePhoto(photo) { result ->
                                 isUploading = false
 
-                                message = result.fold(
-                                    onSuccess = { serverMessage ->
-                                        serverMessage
-                                    },
-                                    onFailure = { error ->
-                                        "Analyse mislukt: ${error.message}"
+                                if (selectedPhoto == photo) {
+                                    result.onSuccess { analysis ->
+                                        analysisResult = analysis
+                                        message = analysis.message
+                                    }.onFailure { error ->
+                                        analysisResult = null
+                                        message = "Analyse mislukt: ${error.message}"
                                     }
-                                )
+                                }
                             }
                         }
                     },
@@ -340,6 +340,7 @@ fun PlonsApp() {
                         onClick = {
                             selectedPhoto?.delete()
                             selectedPhoto = null
+                            analysisResult = null
                             message = "Tijdelijke foto verwijderd."
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -347,6 +348,44 @@ fun PlonsApp() {
                         Text("Foto verwijderen")
                     }
                 }
+
+                analysisResult?.let { analysis ->
+
+                    Spacer(Modifier.height(20.dp))
+
+                    Text(
+                        text = "Mogelijke objecten: ${analysis.candidateCount}",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF087F68)
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    analysis.detections.forEachIndexed { index, detection ->
+
+                        val percentage = detection.confidence * 100f
+
+                        Text(
+                            text = "${index + 1}. ${detection.category} - " +
+                                    "%.1f".format(percentage) + "%",
+                            fontSize = 14.sp,
+                            color = Color.DarkGray
+                        )
+
+                        Spacer(Modifier.height(4.dp))
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        text = "Kandidaatobjecten: plasticmateriaal " +
+                                "nog niet door AI bevestigd.",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+
 
                 Spacer(Modifier.height(24.dp))
 

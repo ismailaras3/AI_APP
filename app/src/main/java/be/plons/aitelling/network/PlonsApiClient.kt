@@ -53,7 +53,7 @@ object PlonsApiClient {
 
     fun analysePhoto(
         photo: File,
-        onResult: (Result<String>) -> Unit
+        onResult: (Result<ApiAnalysis>) -> Unit
     ) {
         Thread {
             val result = runCatching {
@@ -66,7 +66,7 @@ object PlonsApiClient {
         }.start()
     }
 
-    private fun uploadPhoto(photo: File): String {
+    private fun uploadPhoto(photo: File): ApiAnalysis {
         require(photo.isFile) {
             "De tijdelijke foto bestaat niet meer."
         }
@@ -78,7 +78,7 @@ object PlonsApiClient {
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
-            connection.readTimeout = 30_000
+            connection.readTimeout = 120_000
             connection.doOutput = true
             connection.setRequestProperty(
                 "Content-Type",
@@ -155,11 +155,7 @@ object PlonsApiClient {
                 )
             }
 
-            return JSONObject(response)
-                .optString(
-                    "message",
-                    "Antwoord ontvangen van de server."
-                )
+            return ApiAnalysis.fromJson(JSONObject(response))
 
         } finally {
             connection.disconnect()
